@@ -6,6 +6,7 @@
 // ===================================================
 // [Version]
 // 1.0.0 初版
+// 1.0.1 素材ウインドウの表示位置不具合を調整
 //=============================================================================
 // TMPlugin - 欲張りショップ
 // バージョン: 2.2.0
@@ -407,24 +408,30 @@ Imported.TMGreedShop = true;
         this.setMaterialWindowPosition();
       }
     };
-    
-    Window_ShopBuy.prototype.setMaterialWindowPosition = function() {
-      const lineHeight = this.lineHeight();
-      const testHeight = lineHeight + this.itemPadding();
-      const rect = this.itemRectWithPadding(this.index());
+
+    Window_ShopBuy.prototype.calcMaterialWindowPositionY = function(rect) {
+      const testHeight = this.lineHeight() + this.itemPadding();
       const index = this.index() - this.topRow();
-      const y = this.y + this.padding + (index + 1) * rect.height + 
-                (index * this.rowSpacing()) - 
-                this._scrollY % testHeight;
+      return(
+          this.y + this.padding + this.rowSpacing() / 2 +
+          (index + 1) * rect.height + 
+          ((index + 1) * this.rowSpacing()) - 
+          this._scrollY % testHeight
+      );
+    };
+
+    Window_ShopBuy.prototype.setMaterialWindowPosition = function() {
+      const rect = this.itemRectWithPadding(this.index());
+      const y = this.calcMaterialWindowPositionY(rect);
+      const h_helpWindowNoinc = Graphics.boxHeight - this._helpWindow.height;
       let x = 0;
       switch (materialWindowPosition) {
         case 0:  // item bottom
           x = this.x + this.width / 2;
           this._materialWindow.x = x - this._materialWindow.width / 2;
           this._materialWindow.y = y;
-          if (this._materialWindow.y + this._materialWindow.height > Graphics.boxHeight) {
-            this._materialWindow.y = this.contentsHeight() - rect.height *
-                                     (this.maxRows() - this.index() + 2);
+          if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
+            this._materialWindow.y -= this._materialWindow.height + rect.height;
           }
           break;
         case 1:  // item right
@@ -434,16 +441,15 @@ Imported.TMGreedShop = true;
           if (this._materialWindow.x + this._materialWindow.width > Graphics.boxWidth) {
             this._materialWindow.x = Graphics.boxWidth - this._materialWindow.width;
           }
-          if (this._materialWindow.y + this._materialWindow.height > Graphics.boxHeight) {
-            this._materialWindow.y = this.contentsHeight() - rect.height *
-                                     (this.maxRows() - this.index() + 2);
+          if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
+            this._materialWindow.y -= this._materialWindow.height + rect.height;
           }
           break;
         case 2:  // container bottom
           this._materialWindow.x = this.x;
           this._materialWindow.y = this.y + this.height;
-          if (this._materialWindow.y + this._materialWindow.height > Graphics.boxHeight) {
-            this._materialWindow.y = Graphics.boxHeight - this._materialWindow.height;
+          if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
+            this._materialWindow.y = h_helpWindowNoinc - this._materialWindow.height;
           }
           break;
       }
