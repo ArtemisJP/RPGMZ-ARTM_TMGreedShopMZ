@@ -6,7 +6,8 @@
 // ===================================================
 // [Version]
 // 1.0.0 初版
-// 1.0.1 素材ウインドウの表示位置不具合を調整
+// 1.0.1 素材ウインドウの表示位置を調整
+// 1.0.2 マウススクロール時の素材ウインドウ調整
 //=============================================================================
 // TMPlugin - 欲張りショップ
 // バージョン: 2.2.0
@@ -229,476 +230,662 @@ Imported.TMGreedShop = true;
     const showPrice = JSON.parse(parameters['showPrice'] || 'true');
     const seGreedBuy = JSON.parse(parameters['seGreedBuy'] || '{}');
 
+    //-----------------------------------------------------------------------------
+    // PluginManager
+    //
     PluginManager.registerCommand(PLUGIN_NAME, "greedShop", args => {
-      $gameTemp.setGreedShop(true);
+        $gameTemp.setGreedShop(true);
     });
 
+    //-----------------------------------------------------------------------------
+    // DataManager
+    //
     DataManager.getGreedShopMaterials = function(item) {
-      let result = [];
-      if (item) {
-        const re = /(i|w|a)(\d+)\*(\d+)/i;
-        for (let i = 1; i <= materialMax; i++) {
-          const key = 'mat' + i;
-          if (item.meta[key]) {
+        let result = [];
+        if (item) {
+            const re = /(i|w|a)(\d+)\*(\d+)/i;
+            for (let i = 1; i <= materialMax; i++) {
+                const mat = this.getGreedShopMaterial(item, re, i);
+                if (mat) {result.push(mat); }
+            }
+        }
+        return result;
+    };
+
+    DataManager.getGreedShopMaterial = function(item, re, i) {
+        const key = 'mat' + i;
+        let material = null;
+        if (item.meta[key]) {
             const match = re.exec(item.meta[key]);
             if (match) {
-              let material = {};
-              material.type = match[1];
-              material.id   = +match[2];
-              material.need = +match[3];
-              result.push(material);
+                material = {};
+                material.type = match[1];
+                material.id   = +match[2];
+                material.need = +match[3];
             }
-          }
         }
-      }
-      return result;
+        return material;
     };
-    
+
     DataManager.materialToItem = function(material) {
-      const type = material.type.toUpperCase();
-      if (type === 'I') {
-        return $dataItems[material.id];
-      } else if (type === 'W') {
-        return $dataWeapons[material.id];
-      } else if (type === 'A') {
-        return $dataArmors[material.id];
-      }
-      return null;
+        const type = material.type.toUpperCase();
+        if (type === 'I') {
+            return $dataItems[material.id];
+        } else if (type === 'W') {
+            return $dataWeapons[material.id];
+        } else if (type === 'A') {
+            return $dataArmors[material.id];
+        }
+        return null;
     };
 
     DataManager.isConsumableMaterial = function(item) {
-      return item.consumable || (!this.isItem(item) && !item.meta.noConsume);
+        return item.consumable || (!this.isItem(item) && !item.meta.noConsume);
+    };
+
+    //-----------------------------------------------------------------------------
+    // Game_Temp
+    //
+    const _Game_Temp_initialize = Game_Temp.prototype.initialize;
+    Game_Temp.prototype.initialize = function() {
+        _Game_Temp_initialize.call(this);
+        this._greedShop = false;
+        this._greedShopScrolling = false;
     };
 
     Game_Temp.prototype.setGreedShop = function(flag) {
-      this._greedShop = flag;
+        this._greedShop = flag;
     };
 
     Game_Temp.prototype.isGreedShop = function() {
-      return this._greedShop;
+        return this._greedShop;
     };
 
-    Game_Temp.prototype.greedCommand = function() {
-      return this._greedCommand || greedCommand;
+    Game_Temp.prototype.startGreedShopScroll = function() {
+        this._greedShopScrolling = true;
     };
 
+    Game_Temp.prototype.isGreedShopScrolling = function() {
+        return this._greedShopScrolling;
+    };
+
+    //-----------------------------------------------------------------------------
+    // Window_Base
+    //
     Window_Base.prototype.drawGreedMaterials = function(x, y, item, amount, rate) {
-      const materials = DataManager.getGreedShopMaterials(item);
-      this.resetFontSettings();
-      this.contents.fontSize = Math.floor(this.contents.fontSize * rate);
-      if (needText) {
-        y = this.drawGreedNeedText(y, rate);
-      }
-      for (let i = 0; i < materials.length; i++) {
-        y = this.drawGreedMaterial(x, y, materials[i], amount, rate);
-      }
-      if (this._price) {
-        this.drawGreedPrice(y, amount, rate);
-      }
-      this.resetFontSettings();
+        const materials = DataManager.getGreedShopMaterials(item);
+        this.resetFontSettings();
+        this.contents.fontSize = Math.floor(this.contents.fontSize * rate);
+        if (needText) {
+            y = this.drawGreedNeedText(y, rate);
+        }
+        for (let i = 0; i < materials.length; i++) {
+            y = this.drawGreedMaterial(x, y, materials[i], amount, rate);
+        }
+        if (this._price) {
+            this.drawGreedPrice(y, amount, rate);
+        }
+        this.resetFontSettings();
     };
 
     Window_Base.prototype.drawGreedNeedText = function(y, rate) {
-      const lh = Math.floor(this.lineHeight() * rate);
-      this.changeTextColor(this.systemColor());
-      this.contents.drawText(needText, 0, y, this.contents.width, lh, 'center');
-      return y + lh;
+        const lh = Math.floor(this.lineHeight() * rate);
+        this.changeTextColor(this.systemColor());
+        this.contents.drawText(needText, 0, y, this.contents.width, lh, 'center');
+        return y + lh;
     };
 
     Window_Base.prototype.drawGreedMaterial = function(x, y, material, amount, rate) {
-      const x2 = x + Math.floor((ImageManager.iconWidth + 4) * rate);
-      const lh = Math.floor(this.lineHeight() * rate);
-      const materialItem = DataManager.materialToItem(material);
-      const need = material.need * amount;
-      const n = $gameParty.numItems(materialItem);
-      let text = DataManager.isConsumableMaterial(materialItem) ? '' + n + '/' : '--/';
-      text += ('   ' + need).substr(-3);
-      this.drawStretchIcon(x, y, materialItem.iconIndex, rate);
-      this.changeTextColor(ColorManager.normalColor());
-      this.contents.drawText(materialItem.name, x2, y, 312, lh);
-      this.contents.drawText(text, x, y, this.contents.width - this.itemPadding(), lh, 'right');
-      return y + lh;
+        const x2 = x + Math.floor((ImageManager.iconWidth + 4) * rate);
+        const lh = Math.floor(this.lineHeight() * rate);
+        const materialItem = DataManager.materialToItem(material);
+        const need = material.need * amount;
+        const n = $gameParty.numItems(materialItem);
+        let text = DataManager.isConsumableMaterial(materialItem) ? '' + n + '/' : '--/';
+        text += ('   ' + need).substr(-3);
+        this.drawStretchIcon(x, y, materialItem.iconIndex, rate);
+        this.changeTextColor(ColorManager.normalColor());
+        this.contents.drawText(materialItem.name, x2, y, 312, lh);
+        this.contents.drawText(text, x, y, this.contents.width - this.itemPadding(), lh, 'right');
+        return y + lh;
     };
 
     Window_Base.prototype.drawStretchIcon = function(x, y, index, rate) {
-      const bitmap = ImageManager.loadSystem('IconSet');
-      const pw = ImageManager.iconWidth;
-      const ph = ImageManager.iconHeight;
-      const sx = index % 16 * pw;
-      const sy = Math.floor(index / 16) * ph;
-      const dw = Math.floor(pw * rate);
-      const dh = Math.floor(ph * rate);
-      this.contents.blt(bitmap, sx, sy, pw, ph, x, y, dw, dh);
+        const bitmap = ImageManager.loadSystem('IconSet');
+        const pw = ImageManager.iconWidth;
+        const ph = ImageManager.iconHeight;
+        const sx = index % 16 * pw;
+        const sy = Math.floor(index / 16) * ph;
+        const dw = Math.floor(pw * rate);
+        const dh = Math.floor(ph * rate);
+        this.contents.blt(bitmap, sx, sy, pw, ph, x, y, dw, dh);
     };
 
     Window_Base.prototype.drawGreedPrice = function(y, amount, rate) {
-      const x = this.itemPadding();
-      const lh = Math.floor(this.lineHeight() * rate);
-      const width = this.contents.width - x * 2;
-      const unitWidth = Math.min(80, this.textWidth(TextManager.currencyUnit));
-      this.resetTextColor();
-      this.contents.drawText(this._price * amount, x, y, width - unitWidth - 6, lh, 'right');
-      this.changeTextColor(this.systemColor());
-      this.contents.drawText(TextManager.currencyUnit, x + width - unitWidth, y, unitWidth, lh, 'right');
+        const x = this.itemPadding();
+        const lh = Math.floor(this.lineHeight() * rate);
+        const width = this.contents.width - x * 2;
+        const unitWidth = Math.min(80, this.textWidth(TextManager.currencyUnit));
+        this.resetTextColor();
+        this.contents.drawText(this._price * amount, x, y, width - unitWidth - 6, lh, 'right');
+        this.changeTextColor(this.systemColor());
+        this.contents.drawText(TextManager.currencyUnit, x + width - unitWidth, y, unitWidth, lh, 'right');
     };
 
+    //-----------------------------------------------------------------------------
+    // Window_ShopCommand
+    //
     const _Window_ShopCommand_maxCols = Window_ShopCommand.prototype.maxCols;
     Window_ShopCommand.prototype.maxCols = function() {
-      return (showSellCommand || !this._purchaseOnly) ? _Window_ShopCommand_maxCols.call(this) : 2;
+        return (showSellCommand || !this._purchaseOnly) ? _Window_ShopCommand_maxCols.call(this) : 2;
     };
 
     const _Window_ShopCommand_makeCommandList = Window_ShopCommand.prototype.makeCommandList;
     Window_ShopCommand.prototype.makeCommandList = function() {
-      if ($gameTemp.isGreedShop()) {
-        this.addCommand($gameTemp.greedCommand(), 'buy');
-        if (showSellCommand || !this._purchaseOnly) {
-          this.addCommand(TextManager.sell, 'sell', !this._purchaseOnly);
+        if ($gameTemp.isGreedShop()) {
+            this.addCommand(greedCommand, 'buy');
+            if (showSellCommand || !this._purchaseOnly) {
+                this.addCommand(TextManager.sell, 'sell', !this._purchaseOnly);
+            }
+            this.addCommand(TextManager.cancel, 'cancel');
+        } else {
+            _Window_ShopCommand_makeCommandList.call(this);
         }
-        this.addCommand(TextManager.cancel, 'cancel');
-      } else {
-        _Window_ShopCommand_makeCommandList.call(this);
-      }
     };
 
+    //-----------------------------------------------------------------------------
+    // Window_ShopBuy
+    //
     const _Window_ShopBuy_initialize = Window_ShopBuy.prototype.initialize;
     Window_ShopBuy.prototype.initialize = function(x, y, height, shopGoods) {
-      if ($gameTemp.isGreedShop() && +buyWindowHeight > 0) {
-        height = +buyWindowHeight;
-      }
-      _Window_ShopBuy_initialize.call(this, x, y, height, shopGoods);
+        if ($gameTemp.isGreedShop() && +buyWindowHeight > 0) {
+            height = +buyWindowHeight;
+        }
+        _Window_ShopBuy_initialize.call(this, x, y, height, shopGoods);
     };
 
     const _Window_ShopBuy_windowWidth = Window_ShopBuy.prototype.windowWidth;
     Window_ShopBuy.prototype.windowWidth = function() {
-      if ($gameTemp.isGreedShop()) {
-        return buyWindowWidth;
-      }
-      return _Window_ShopBuy_windowWidth.call(this);
+        if ($gameTemp.isGreedShop()) {
+            return buyWindowWidth;
+        }
+        return _Window_ShopBuy_windowWidth.call(this);
     };
 
     const _Window_ShopBuy_price = Window_ShopBuy.prototype.price;
     Window_ShopBuy.prototype.price = function(item) {
-      if ($gameTemp.isGreedShop() && (item && item.meta.matG)) {
-        return +item.meta.matG;
-      }
-      return _Window_ShopBuy_price.call(this, item);
+        if ($gameTemp.isGreedShop() && (item && item.meta.matG)) {
+            return +item.meta.matG;
+        }
+        return _Window_ShopBuy_price.call(this, item);
     };
 
     const _Window_ShopBuy_isEnabled = Window_ShopBuy.prototype.isEnabled;
     Window_ShopBuy.prototype.isEnabled = function(item) {
-      const result = _Window_ShopBuy_isEnabled.call(this, item);
-      if (result && $gameTemp.isGreedShop()) {
-        const materials = DataManager.getGreedShopMaterials(item);
-        for (let i = 0; i < materials.length; i++) {
-          const material = materials[i];
-          const matItem = DataManager.materialToItem(material);
-          if ($gameParty.numItems(matItem) < material.need) {
-            return false;
-          }
+        const result = _Window_ShopBuy_isEnabled.call(this, item);
+        if (result && $gameTemp.isGreedShop()) {
+            const materials = DataManager.getGreedShopMaterials(item);
+            for (let i = 0; i < materials.length; i++) {
+                const material = materials[i];
+                const matItem = DataManager.materialToItem(material);
+                if ($gameParty.numItems(matItem) < material.need) {
+                    return false;
+                }
+            }
         }
-      }
-      return result;
+        return result;
     };
 
     const _Window_ShopBuy_update = Window_ShopBuy.prototype.update;
     Window_ShopBuy.prototype.update = function() {
-      _Window_ShopBuy_update.call(this);
-      if (this.active && this._materialWindow) {
-        this._materialWindow.setShopItem(this.item(), this.price(this.item()));
-        this.setMaterialWindowPosition();
-      }
+        _Window_ShopBuy_update.call(this);
+        if (this.active && this._materialWindow) {
+            this._materialWindow.setShopItem(this.item(), this.price(this.item()));
+            this.setMaterialWindowPosition();
+        }
     };
 
+   Window_ShopBuy.prototype.updateSmoothScroll = function() {
+       Window_Scrollable.prototype.updateSmoothScroll.call(this);
+       if ($gameTemp.isGreedShop()) {
+           const bottom = this.y + this.height;
+           const materialWindow = this._materialWindow;
+           if (materialWindow.y + materialWindow.windowHeight() > bottom ||
+               materialWindow.y < this.y) {
+                materialWindow.hide();
+                $gameTemp.startGreedShopScroll();
+           } else if (!SceneManager._scene._numberWindow.visible){
+               materialWindow.show();
+           }
+       }
+   };
+
     Window_ShopBuy.prototype.calcMaterialWindowPositionY = function(rect) {
-      const testHeight = this.lineHeight() + this.itemPadding();
-      const index = this.index() - this.topRow();
-      return(
-          this.y + this.padding + this.rowSpacing() / 2 +
-          (index + 1) * rect.height + 
-          ((index + 1) * this.rowSpacing()) - 
-          this._scrollY % testHeight
-      );
+        const testHeight = this.lineHeight() + this.itemPadding();
+        const index = this.index() - this.topRow();
+        return(
+            this.y + this.padding + this.rowSpacing() / 2 +
+            (index + 1) * rect.height + 
+            ((index + 1) * this.rowSpacing()) - 
+            this._scrollY % testHeight
+        );
     };
 
     Window_ShopBuy.prototype.setMaterialWindowPosition = function() {
-      const rect = this.itemRectWithPadding(this.index());
-      const y = this.calcMaterialWindowPositionY(rect);
-      const h_helpWindowNoinc = Graphics.boxHeight - this._helpWindow.height;
-      let x = 0;
-      switch (materialWindowPosition) {
-        case 0:  // item bottom
-          x = this.x + this.width / 2;
-          this._materialWindow.x = x - this._materialWindow.width / 2;
-          this._materialWindow.y = y;
-          if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
-            this._materialWindow.y -= this._materialWindow.height + rect.height;
-          }
-          break;
-        case 1:  // item right
-          x = this.x + this.width - this.padding;
-          this._materialWindow.x = x;
-          this._materialWindow.y = y;
-          if (this._materialWindow.x + this._materialWindow.width > Graphics.boxWidth) {
-            this._materialWindow.x = Graphics.boxWidth - this._materialWindow.width;
-          }
-          if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
-            this._materialWindow.y -= this._materialWindow.height + rect.height;
-          }
-          break;
-        case 2:  // container bottom
-          this._materialWindow.x = this.x;
-          this._materialWindow.y = this.y + this.height;
-          if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
-            this._materialWindow.y = h_helpWindowNoinc - this._materialWindow.height;
-          }
-          break;
-      }
+        const rect = this.itemRectWithPadding(this.index());
+        const y = this.calcMaterialWindowPositionY(rect);
+        const h_helpWindowNoinc = Graphics.boxHeight - this._helpWindow.height;
+        let x = 0;
+        switch (materialWindowPosition) {
+            case 0:  // item bottom
+                x = this.x + this.width / 2;
+                this._materialWindow.x = x - this._materialWindow.width / 2;
+                this._materialWindow.y = y;
+                if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
+                    this._materialWindow.y -= this._materialWindow.height + rect.height;
+                }
+                break;
+            case 1:  // item right
+                x = this.x + this.width - this.padding;
+                this._materialWindow.x = x;
+                this._materialWindow.y = y;
+                if (this._materialWindow.x + this._materialWindow.width > Graphics.boxWidth) {
+                    this._materialWindow.x = Graphics.boxWidth - this._materialWindow.width;
+                }
+                if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
+                    this._materialWindow.y -= this._materialWindow.height + rect.height;
+                }
+                break;
+            case 2:  // container bottom
+                this._materialWindow.x = this.x;
+                this._materialWindow.y = this.y + this.height;
+                if (this._materialWindow.y + this._materialWindow.height > h_helpWindowNoinc) {
+                    this._materialWindow.y = h_helpWindowNoinc - this._materialWindow.height;
+                }
+                break;
+        }
     };
 
     const _Window_ShopBuy_makeItemList = Window_ShopBuy.prototype.makeItemList;
     Window_ShopBuy.prototype.makeItemList = function() {
-      _Window_ShopBuy_makeItemList.call(this);
-      for (let i = this._data.length - 1; i >= 0; i--) {
-        const item = this._data[i];
-        if (item && item.meta.matKey) {
-          const materials = DataManager.getGreedShopMaterials(item);
-          const keys = item.meta.matKey.split(' ').map(Number);
-          for (let j = 0; j < keys.length; j++) {
+        _Window_ShopBuy_makeItemList.call(this);
+        for (let i = this._data.length - 1; i >= 0; i--) {
+            const item = this._data[i];
+            if (item && item.meta.matKey) {
+                this.makeItemListForMat(item, i);
+            }
+        }
+    };
+
+    Window_ShopBuy.prototype.makeItemListForMat = function(item, i) {
+        const materials = DataManager.getGreedShopMaterials(item);
+        const keys = item.meta.matKey.split(" ").map(Number);
+        for (let j = 0; j < keys.length; j++) {
             const material = materials[keys[j] - 1];
             const matItem = DataManager.materialToItem(material);
             if (!$gameParty.hasItem(matItem, false)) {
-              this._data.splice(i, 1);
-              this._price.splice(i, 1);
-              break;
+                this._data.splice(i, 1);
+                this._price.splice(i, 1);
+                break;
             }
-          }
         }
-      }
     };
 
     const _Window_ShopBuy_drawItem = Window_ShopBuy.prototype.drawItem;
     Window_ShopBuy.prototype.drawItem = function(index) {
-      if ($gameTemp.isGreedShop() && !showPrice) {
-        const item = this._data[index];
-        const rect = this.itemRect(index);
-        rect.width -= this.itemPadding();
-        this.changePaintOpacity(this.isEnabled(item));
-        this.drawItemName(item, rect.x, rect.y, rect.width);
-        this.changePaintOpacity(true);
-      } else {
-        _Window_ShopBuy_drawItem.call(this, index);
-      }
+        if ($gameTemp.isGreedShop() && !showPrice) {
+            const item = this._data[index];
+            const rect = this.itemRect(index);
+            rect.width -= this.itemPadding();
+            this.changePaintOpacity(this.isEnabled(item));
+            this.drawItemName(item, rect.x, rect.y, rect.width);
+            this.changePaintOpacity(true);
+        } else {
+            _Window_ShopBuy_drawItem.call(this, index);
+        }
     };
 
     Window_ShopBuy.prototype.setMaterialWindow = function(materialWindow) {
-      this._materialWindow = materialWindow;
+        this._materialWindow = materialWindow;
     };
-    
+
+    Window_ShopBuy.prototype.select = function(index) {
+        Window_Selectable.prototype.select.call(this, index);
+        if (this._materialWindow) {
+            this._materialWindow.show();
+        }
+    };
+
+    //-----------------------------------------------------------------------------
+    // Window_ShopStatus
+    //
+    const _Window_ShopStatus_initialize = Window_ShopStatus.prototype.initialize;
+    Window_ShopStatus.prototype.initialize = function(rect) {
+        _Window_ShopStatus_initialize.call(this, rect);
+        this._toggleButtons = [];
+    };
+
+    const _Window_ShopStatus_drawActorEquipInfo = Window_ShopStatus.prototype.drawActorEquipInfo;
+    Window_ShopStatus.prototype.drawActorEquipInfo = function(x, y, actor) {
+//        const toggleButton = new Sprite_ToggleButton("ok");
+//        const partyId = this._toggleButtons.length - 1;
+//        this._toggleButtons.push(toggleButton);
+//        this.addInnerChild(toggleButton);
+//        toggleButton.setClickHandler(this.onButtonClick.bind(this, partyId));
+//        toggleButton.x = x;
+//        toggleButton.y = y + 6;
+//        toggleButton.visible = false;
+//        x += toggleButton.width * 0.25 + 8;
+        _Window_ShopStatus_drawActorEquipInfo.call(this, ...arguments);
+    };
+
+    Window_ShopStatus.prototype.onButtonClick = function(partyId) {
+        const member = $gameParty.members[partyId];
+        if (member) {
+            alert(member.name());
+        }
+    };
+
+    Window_ShopStatus.prototype.clearToggleButtons = function() {
+        this._toggleButtons.forEach(b => b._pressedTgl = false);
+        dubugNum = 0;
+    };
+
+    //-----------------------------------------------------------------------------
+    // Window_ShopNumber
+    //
     const _Window_ShopNumber_windowWidth = Window_ShopNumber.prototype.windowWidth;
     Window_ShopNumber.prototype.windowWidth = function() {
-      if ($gameTemp.isGreedShop()) {
-        return buyWindowWidth;
-      }
-      return _Window_ShopNumber_windowWidth.call(this);
+        if ($gameTemp.isGreedShop()) {
+            return buyWindowWidth;
+        }
+        return _Window_ShopNumber_windowWidth.call(this);
     };
 
     const _Window_ShopNumber_refresh = Window_ShopNumber.prototype.refresh;
     Window_ShopNumber.prototype.refresh = function() {
-      _Window_ShopNumber_refresh.call(this);
-      if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
-        this.drawGreedMaterials(0, this.lineHeight() * 2, this._item, this._number, fontRate);
-      }
+        _Window_ShopNumber_refresh.call(this);
+        if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
+            this.drawGreedMaterials(0, this.lineHeight() * 2, this._item, this._number, fontRate);
+        }
+        const scene = SceneManager._scene;
+        scene._statusWindow.clearToggleButtons();
     };
 
     const _Window_ShopNumber_drawTotalPrice = Window_ShopNumber.prototype.drawTotalPrice;
     Window_ShopNumber.prototype.drawTotalPrice = function() {
-      if (!$gameTemp.isGreedShop()) {
-        _Window_ShopNumber_drawTotalPrice.call(this);
-      }
+        if (!$gameTemp.isGreedShop()) {
+            _Window_ShopNumber_drawTotalPrice.call(this);
+        }
     };
 
     const _Window_ShopNumber_itemNameY = Window_ShopNumber.prototype.itemNameY;
     Window_ShopNumber.prototype.itemNameY = function() {
-      if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
-        return 0;
-      }
-      return _Window_ShopNumber_itemNameY.call(this);
+        if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
+            return 0;
+        }
+        return _Window_ShopNumber_itemNameY.call(this);
     };
 
     const _Window_ShopNumber_priceY = Window_ShopNumber.prototype.priceY;
     Window_ShopNumber.prototype.priceY = function() {
-      if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
-        return this.lineHeight() * 1.5;
-      }
-      return _Window_ShopNumber_priceY.call(this);
+        if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
+            return this.lineHeight() * 1.5;
+        }
+        return _Window_ShopNumber_priceY.call(this);
     };
 
     const _Window_ShopNumber_buttonY = Window_ShopNumber.prototype.buttonY;
     Window_ShopNumber.prototype.buttonY = function() {
-      if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
-        return  this.contents.height - this.lineHeight() * 2.6;
-      }
-      return _Window_ShopNumber_buttonY.call(this);
+        if ($gameTemp.isGreedShop() && showMaterialFromNumberWindow) {
+            return  this.contents.height - this.lineHeight() * 2.6;
+        }
+        return _Window_ShopNumber_buttonY.call(this);
     };
 
-    function Window_Material() {
-      this.initialize.apply(this, arguments);
+    function Window_Material(buyWindow) {
+        this.initialize.apply(this, arguments);
     }
 
+    //-----------------------------------------------------------------------------
+    // Window_Material
+    //
     Window_Material.prototype = Object.create(Window_Base.prototype);
     Window_Material.prototype.constructor = Window_Material;
 
     Window_Material.prototype.initialize = function() {
-      this._materials = [];
-      const width = this.windowWidth();
-      const height = this.windowHeight();
-      Window_Base.prototype.initialize.call(this, new Rectangle(0, 0, width, height));
-      this.hide();
+        this._materials = [];
+        const width = this.windowWidth();
+        const height = this.windowHeight();
+        Window_Base.prototype.initialize.call(this, new Rectangle(0, 0, width, height));
+        this.hide();
     };
 
     Window_Material.prototype.windowWidth = function() {
-      return materialWindowWidth;
+        return materialWindowWidth;
     };
 
     Window_Material.prototype.windowHeight = function() {
-      let n = this._materials.length;
-      if (needText) {
-        n += 1;
-      }
-      if (this._price) {
-        n += 1;
-      }
-      return Math.floor(this.fittingHeight(n) * fontRate);
+        let n = this._materials.length;
+        if (needText) {
+            n += 1;
+        }
+        if (this._price) {
+            n += 1;
+        }
+        return Math.floor(this.fittingHeight(n) * fontRate);
     };
 
     Window_Material.prototype.standardBackOpacity = function() {
-      return backOpacity;
+        return backOpacity;
     };
 
     const _Window_Material_show = Window_Material.prototype.show;
     Window_Material.prototype.show = function() {
-      _Window_Material_show.call(this);
-      if (this._materials.length === 0) {
-        this.visible = false;
-      }
+        _Window_Material_show.call(this);
+        if (this._materials.length === 0) {
+            this.hide();
+        }
     };
     
     Window_Material.prototype.materials = function() {
-      return this._materials;
+        return this._materials;
     };
     
     Window_Material.prototype.setShopItem = function(item, price) {
       if (this._shopItem !== item) {
-        this._shopItem = item;
-        this._price = price;
-        this._materials = DataManager.getGreedShopMaterials(item);
-        if (this._materials.length > 0) {
-          this.refresh();
+          this._shopItem = item;
+          this._price = price;
+          this._materials = DataManager.getGreedShopMaterials(item);
+          if (this._materials.length > 0) {
+              this.refresh();
+          }
+          if (showMaterialWindow) {
+              this.show();
+          }
         }
-        if (showMaterialWindow) {
-          this.show();
-        }
-      }
     };
     
     Window_Material.prototype.refresh = function() {
-      this.move(this.x, this.y, this.width, this.windowHeight());
-      this.createContents();
-      this.drawGreedMaterials(0, 0, this._shopItem, 1, fontRate);
+        this.move(this.x, this.y, this.width, this.windowHeight());
+        this.createContents();
+        this.drawGreedMaterials(0, 0, this._shopItem, 1, fontRate);
     };
 
+    let dubugNum = 0; // debug($gameTempに定義したい)
+    //-----------------------------------------------------------------------------
+    // Sprite_ToggleButton
+    //
+    function Sprite_ToggleButton() {
+        this.initialize(...arguments);
+    }
+
+    Sprite_ToggleButton.prototype = Object.create(Sprite_Button.prototype);
+    Sprite_ToggleButton.prototype.constructor = Sprite_ToggleButton;
+
+    Sprite_ToggleButton.prototype.initialize = function(buttonType) {
+        Sprite_Button.prototype.initialize.call(this, buttonType);
+        this._pressedTgl = false;
+        this.scale.x = 0.25;
+        this.scale.y = 0.5;
+    };
+
+    Sprite_ToggleButton.prototype.update = function() {
+        this.updateToggle();
+        Sprite_Button.prototype.update.call(this);
+    };
+
+    Sprite_ToggleButton.prototype.updateToggle = function() {
+        if (TouchInput.isClicked() && this.isBeingTouched()) {
+            const scene = SceneManager._scene;
+            const number = scene._numberWindow._number;
+            if (!this._pressedTgl && dubugNum < number) {
+                SoundManager.playCursor();
+                this._pressedTgl = true;
+                dubugNum++;
+            } else if (!!this._pressedTgl) {
+                SoundManager.playCursor();
+                this._pressedTgl = false;
+                dubugNum--
+            } else {
+                SoundManager.playBuzzer();
+            }
+        }
+    };
+
+    Sprite_ToggleButton.prototype.isPressedTgl = function() {
+        return this._pressedTgl;
+    };
+
+    Sprite_ToggleButton.prototype.updateFrame = function() {
+        this._pressed = this.isPressedTgl();
+        Sprite_Button.prototype.updateFrame.call(this);
+    };
+
+    Sprite_ToggleButton.prototype.updateOpacity = function() {
+        this._pressed = this.isPressedTgl();
+        Sprite_Button.prototype.updateOpacity.call(this);
+        
+    };
+
+    //-----------------------------------------------------------------------------
+    // Scene_Shop
+    //
     const _Scene_Shop_terminate = Scene_Shop.prototype.terminate;
     Scene_Shop.prototype.terminate = function() {
-      _Scene_Shop_terminate.call(this);
-      $gameTemp.setGreedShop(false);
+        _Scene_Shop_terminate.call(this);
+        $gameTemp.setGreedShop(false);
     };
 
     const _Scene_Shop_create = Scene_Shop.prototype.create;
     Scene_Shop.prototype.create = function() {
-      _Scene_Shop_create.call(this);
-      if ($gameTemp.isGreedShop()) {
-        this.createMaterialWindow();
-      }
+        _Scene_Shop_create.call(this);
+        if ($gameTemp.isGreedShop()) {
+            this.createMaterialWindow();
+        }
     };
 
     Scene_Shop.prototype.createMaterialWindow = function() {
-      this._materialWindow = new Window_Material();
-      this._buyWindow.setMaterialWindow(this._materialWindow);
-      if (overlaid) {
-        this.addChild(this._materialWindow);
-      } else {
-        this.addWindow(this._materialWindow);
-      }
+        this._materialWindow = new Window_Material(this._buyWindow);
+        this._buyWindow.setMaterialWindow(this._materialWindow);
+        if (overlaid) {
+            this.addChild(this._materialWindow);
+        } else {
+            this.addWindow(this._materialWindow);
+        }
     };
 
     const _Scene_Shop_onBuyOk = Scene_Shop.prototype.onBuyOk;
     Scene_Shop.prototype.onBuyOk = function() {
-      _Scene_Shop_onBuyOk.call(this);
-      if (this._materialWindow) {
-        this._materialWindow.hide();
-      }
+        _Scene_Shop_onBuyOk.call(this);
+        if (this._materialWindow) {
+            this._materialWindow.hide();
+        }
+//        const buttons = this._statusWindow._toggleButtons;
+//        this._statusWindow.statusMembers().forEach((m, i) => {
+//            if (m.canEquip(this._item)) { buttons[i].visible = true; }
+//        });
     };
     
     const _Scene_Shop_onBuyCancel = Scene_Shop.prototype.onBuyCancel;
     Scene_Shop.prototype.onBuyCancel = function() {
-      _Scene_Shop_onBuyCancel.call(this);
-      if (this._materialWindow) {
-        this._materialWindow.setShopItem(null);
-      }
+        _Scene_Shop_onBuyCancel.call(this);
+        if (this._materialWindow) {
+            this._materialWindow.setShopItem(null);
+        }
     };
 
     const _Scene_Shop_onNumberOk = Scene_Shop.prototype.onNumberOk;
     Scene_Shop.prototype.onNumberOk = function() {
-      if ($gameTemp.isGreedShop() && this._commandWindow.currentSymbol() === 'buy') {
-        AudioManager.playSe(seGreedBuy);
-        this.doBuy(this._numberWindow.number());
-        this.endNumberInput();
-        this._goldWindow.refresh();
-        this._statusWindow.refresh();
-      } else {
-        _Scene_Shop_onNumberOk.call(this);
-      }
+        if ($gameTemp.isGreedShop() && this._commandWindow.currentSymbol() === 'buy') {
+            const buttons = this._statusWindow._toggleButtons;
+            AudioManager.playSe(seGreedBuy);
+            this.doBuy(this._numberWindow.number());
+            this.endNumberInput();
+            this._goldWindow.refresh();
+            this._statusWindow.refresh();
+//            this._statusWindow.statusMembers().forEach((m, i) => {
+//                if (!!this._statusWindow._toggleButtons[i].visible) {
+//                    buttons[i].visible = false
+//                };
+//            });
+        } else {
+            _Scene_Shop_onNumberOk.call(this);
+        }
+    };
+
+    const _Scene_Shop_onNumberCancel = Scene_Shop.prototype.onNumberCancel;
+    Scene_Shop.prototype.onNumberCancel = function() {
+        _Scene_Shop_onNumberCancel.call(this);
+//        if ($gameTemp.isGreedShop() && this._commandWindow.currentSymbol() === 'buy') {
+//            const buttons = this._statusWindow._toggleButtons;
+//            this._statusWindow.statusMembers().forEach((m, i) => {
+//                if (!!this._statusWindow._toggleButtons[i].visible) {
+//                    buttons[i].visible = false
+//                };
+//            });
+//        }
     };
 
     const _Scene_Shop_doBuy = Scene_Shop.prototype.doBuy;
     Scene_Shop.prototype.doBuy = function(number) {
-      _Scene_Shop_doBuy.call(this, number);
-      if (this._materialWindow) {
-        const materials = this._materialWindow.materials();
-        for (let i = 0; i < materials.length; i++) {
-          const material = materials[i];
-          const item = DataManager.materialToItem(material);
-          if (DataManager.isConsumableMaterial(item)) {
-            $gameParty.loseItem(item, material.need * number);
-          }
+        _Scene_Shop_doBuy.call(this, number);
+        if (this._materialWindow) {
+            const materials = this._materialWindow.materials();
+            for (let i = 0; i < materials.length; i++) {
+                const material = materials[i];
+                const item = DataManager.materialToItem(material);
+                if (DataManager.isConsumableMaterial(item)) {
+                    $gameParty.loseItem(item, material.need * number);
+                }
+            }
+            this._materialWindow.refresh();
         }
-        this._materialWindow.refresh();
-      }
     };
 
     const _Scene_Shop_maxBuy = Scene_Shop.prototype.maxBuy;
     Scene_Shop.prototype.maxBuy = function() {
-      let result = _Scene_Shop_maxBuy.call(this);
-      if (this._materialWindow) {
-        const materials = this._materialWindow.materials();
-        for (let i = 0; i < materials.length; i++) {
-          const material = materials[i];
-          const item = DataManager.materialToItem(material);
-          if (DataManager.isConsumableMaterial(item)) {
-            const n = $gameParty.numItems(item);
-            result = Math.min(result, Math.floor(n / material.need));
-          }
+        let result = _Scene_Shop_maxBuy.call(this);
+        if (this._materialWindow) {
+            const materials = this._materialWindow.materials();
+            for (let i = 0; i < materials.length; i++) {
+                const material = materials[i];
+                const item = DataManager.materialToItem(material);
+                if (DataManager.isConsumableMaterial(item)) {
+                  const n = $gameParty.numItems(item);
+                  result = Math.min(result, Math.floor(n / material.need));
+                }
+            }
         }
-      }
-      return result;
+        return result;
     };
 
     const _Scene_Shop_endNumberInput = Scene_Shop.prototype.endNumberInput;
     Scene_Shop.prototype.endNumberInput = function() {
-      _Scene_Shop_endNumberInput.call(this);
-      if (this._materialWindow && showMaterialWindow) {
-        this._materialWindow.show();
-      }
+        _Scene_Shop_endNumberInput.call(this);
+        if (this._materialWindow && showMaterialWindow) {
+            this._materialWindow.show(); 
+        }
     };
 
 })();
