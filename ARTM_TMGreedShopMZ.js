@@ -565,20 +565,6 @@ Imported.TMGreedShop = true;
         this._toggleButtons = [];
     };
 
-    const _Window_ShopStatus_drawActorEquipInfo = Window_ShopStatus.prototype.drawActorEquipInfo;
-    Window_ShopStatus.prototype.drawActorEquipInfo = function(x, y, actor) {
-//        const toggleButton = new Sprite_ToggleButton("ok");
-//        const partyId = this._toggleButtons.length - 1;
-//        this._toggleButtons.push(toggleButton);
-//        this.addInnerChild(toggleButton);
-//        toggleButton.setClickHandler(this.onButtonClick.bind(this, partyId));
-//        toggleButton.x = x;
-//        toggleButton.y = y + 6;
-//        toggleButton.visible = false;
-//        x += toggleButton.width * 0.25 + 8;
-        _Window_ShopStatus_drawActorEquipInfo.call(this, ...arguments);
-    };
-
     Window_ShopStatus.prototype.onButtonClick = function(partyId) {
         const member = $gameParty.members[partyId];
         if (member) {
@@ -712,62 +698,6 @@ Imported.TMGreedShop = true;
         this.drawGreedMaterials(0, 0, this._shopItem, 1, fontRate);
     };
 
-    let dubugNum = 0; // debug($gameTempに定義したい)
-    //-----------------------------------------------------------------------------
-    // Sprite_ToggleButton
-    //
-    function Sprite_ToggleButton() {
-        this.initialize(...arguments);
-    }
-
-    Sprite_ToggleButton.prototype = Object.create(Sprite_Button.prototype);
-    Sprite_ToggleButton.prototype.constructor = Sprite_ToggleButton;
-
-    Sprite_ToggleButton.prototype.initialize = function(buttonType) {
-        Sprite_Button.prototype.initialize.call(this, buttonType);
-        this._pressedTgl = false;
-        this.scale.x = 0.25;
-        this.scale.y = 0.5;
-    };
-
-    Sprite_ToggleButton.prototype.update = function() {
-        this.updateToggle();
-        Sprite_Button.prototype.update.call(this);
-    };
-
-    Sprite_ToggleButton.prototype.updateToggle = function() {
-        if (TouchInput.isClicked() && this.isBeingTouched()) {
-            const scene = SceneManager._scene;
-            const number = scene._numberWindow._number;
-            if (!this._pressedTgl && dubugNum < number) {
-                SoundManager.playCursor();
-                this._pressedTgl = true;
-                dubugNum++;
-            } else if (!!this._pressedTgl) {
-                SoundManager.playCursor();
-                this._pressedTgl = false;
-                dubugNum--
-            } else {
-                SoundManager.playBuzzer();
-            }
-        }
-    };
-
-    Sprite_ToggleButton.prototype.isPressedTgl = function() {
-        return this._pressedTgl;
-    };
-
-    Sprite_ToggleButton.prototype.updateFrame = function() {
-        this._pressed = this.isPressedTgl();
-        Sprite_Button.prototype.updateFrame.call(this);
-    };
-
-    Sprite_ToggleButton.prototype.updateOpacity = function() {
-        this._pressed = this.isPressedTgl();
-        Sprite_Button.prototype.updateOpacity.call(this);
-        
-    };
-
     //-----------------------------------------------------------------------------
     // Scene_Shop
     //
@@ -801,10 +731,6 @@ Imported.TMGreedShop = true;
         if (this._materialWindow) {
             this._materialWindow.hide();
         }
-//        const buttons = this._statusWindow._toggleButtons;
-//        this._statusWindow.statusMembers().forEach((m, i) => {
-//            if (m.canEquip(this._item)) { buttons[i].visible = true; }
-//        });
     };
     
     const _Scene_Shop_onBuyCancel = Scene_Shop.prototype.onBuyCancel;
@@ -824,27 +750,9 @@ Imported.TMGreedShop = true;
             this.endNumberInput();
             this._goldWindow.refresh();
             this._statusWindow.refresh();
-//            this._statusWindow.statusMembers().forEach((m, i) => {
-//                if (!!this._statusWindow._toggleButtons[i].visible) {
-//                    buttons[i].visible = false
-//                };
-//            });
         } else {
             _Scene_Shop_onNumberOk.call(this);
         }
-    };
-
-    const _Scene_Shop_onNumberCancel = Scene_Shop.prototype.onNumberCancel;
-    Scene_Shop.prototype.onNumberCancel = function() {
-        _Scene_Shop_onNumberCancel.call(this);
-//        if ($gameTemp.isGreedShop() && this._commandWindow.currentSymbol() === 'buy') {
-//            const buttons = this._statusWindow._toggleButtons;
-//            this._statusWindow.statusMembers().forEach((m, i) => {
-//                if (!!this._statusWindow._toggleButtons[i].visible) {
-//                    buttons[i].visible = false
-//                };
-//            });
-//        }
     };
 
     const _Scene_Shop_doBuy = Scene_Shop.prototype.doBuy;
